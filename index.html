@@ -2,173 +2,38 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=0.7">
-    <title>Time Tracker</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-        }
-        .container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            margin-top: 10px;
-        }
-        table {
-            border-collapse: collapse;
-            margin-top: 10px;
-            width: 14%;
-        }
-        th, td {
-            border: 1px solid black;
-            width: 30px;
-            height: 20px;
-            text-align: center;
-            cursor: pointer;
-        }
-        .selected {
-            outline: 2px solid black; /* 드래그 중 표시 */
-        }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>시간 기록 테이블</title>
+    <link rel="stylesheet" href="style.css"> <!-- CSS 연결 -->
 </head>
 <body>
 
-<div class="container">
-    <!-- 활동 선택 -->
-    <label for="activity">활동 선택:</label>
+    <h1>하루 시간 기록</h1>
+
     <select id="activity">
-        <option value="운동" data-color="lightgreen">운동</option>
-        <option value="강의" data-color="lightblue">강의</option>
-        <option value="업무" data-color="lightcoral">업무</option>
-        <option value="휴식" data-color="lightgray">휴식</option>
+        <option value="운동" data-color="#FF5733">운동</option>
+        <option value="강의" data-color="#33FF57">강의</option>
+        <option value="업무" data-color="#3357FF">업무</option>
+        <option value="휴식" data-color="#FFD700">휴식</option>
     </select>
 
-    <!-- 6시부터 6시까지의 24시간 표 -->
+    <button id="apply-btn">기록하기</button>
+    <button id="add-activity-btn">활동 추가</button> <!-- 토글 방식 -->
+
+    <!-- 색상 선택 및 활동 추가 입력창 (기본적으로 숨김) -->
+    <div id="activity-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <h2>새 활동 추가</h2>
+            <input type="text" id="new-activity-name" placeholder="활동 이름 입력">
+            <input type="color" id="new-activity-color"> <!-- 색상 선택 -->
+            <button id="save-activity-btn">추가</button>
+        </div>
+    </div>
+
     <table id="time-table">
-        <thead>
-            <tr>
-                <th>시간</th>
-                <th>00</th><th>10</th><th>20</th><th>30</th><th>40</th><th>50</th>
-            </tr>
-        </thead>
-        <tbody>
-            <!-- JS로 행을 추가할 예정 -->
-        </tbody>
+        <!-- 24시간 × 6칸의 표가 여기에 들어감 -->
     </table>
-</div>
 
-<script>
-    // 표 생성 (6시부터 시작)
-    const tableBody = document.querySelector("#time-table tbody");
-    for (let hour = 6; hour < 30; hour++) { // 6시부터 30시까지(다음 날 6시까지)
-        let row = document.createElement("tr");
-        let timeCell = document.createElement("td");
-        timeCell.textContent = `${String(hour % 24).padStart(2, "0")}:00`;
-        row.appendChild(timeCell);
-
-        for (let i = 0; i < 6; i++) {
-            let cell = document.createElement("td");
-            cell.dataset.time = `${String(hour % 24).padStart(2, "0")}:${String(i * 10).padStart(2, "0")}`;
-            row.appendChild(cell);
-        }
-
-        tableBody.appendChild(row);
-    }
-
-    let isDragging = false;
-    let startCell = null;
-    let selectedCells = [];
-
-    // 셀 드래그 시작
-    document.querySelectorAll("#time-table td").forEach(cell => {
-        cell.addEventListener("mousedown", (e) => {
-            if (!cell.dataset.time) return;  // 시간 셀 제외
-            isDragging = true;
-            startCell = cell;
-            selectedCells = [cell];
-            highlightSelection();
-        });
-
-        cell.addEventListener("mouseover", (e) => {
-            if (isDragging) {
-                selectedCells = getSelectedRange(startCell, cell);
-                highlightSelection();
-            }
-        });
-
-        cell.addEventListener("mouseup", () => {
-            if (isDragging) {
-                applySelection();
-            }
-            isDragging = false;
-            startCell = null;
-            selectedCells = [];
-        });
-    });
-
-    document.addEventListener("mouseup", () => {
-        if (isDragging) {
-            applySelection();
-        }
-        isDragging = false;
-        startCell = null;
-        selectedCells = [];
-    });
-
-    // 선택한 범위 가져오기
-    function getSelectedRange(start, end) {
-        let tableCells = [...document.querySelectorAll("#time-table td")];
-        let startIdx = tableCells.indexOf(start);
-        let endIdx = tableCells.indexOf(end);
-
-        let startRow = start.parentElement.rowIndex;
-        let endRow = end.parentElement.rowIndex;
-        let startCol = start.cellIndex;
-        let endCol = end.cellIndex;
-
-        let selected = [];
-
-        // 줄을 넘어가면 자동으로 첫 칸부터 마지막 칸까지 포함
-        if (startRow > endRow || (startRow === endRow && startCol > endCol)) {
-            [start, end] = [end, start];
-            [startRow, endRow, startCol, endCol] = [endRow, startRow, endCol, startCol];
-        }
-
-        for (let i = startRow; i <= endRow; i++) {
-            let rowCells = tableBody.rows[i - 1].cells;
-            let rowStartCol = i === startRow ? startCol : 1;
-            let rowEndCol = i === endRow ? endCol : rowCells.length - 1;
-
-            for (let j = rowStartCol; j <= rowEndCol; j++) {
-                selected.push(rowCells[j]);
-            }
-        }
-
-        return selected;
-    }
-
-    // 선택 영역 하이라이트
-    function highlightSelection() {
-        document.querySelectorAll("#time-table td").forEach(cell => cell.classList.remove("selected"));
-        selectedCells.forEach(cell => cell.classList.add("selected"));
-    }
-
-    // 선택 영역을 확정하여 색 적용
-    function applySelection() {
-        let selectedActivity = document.querySelector("#activity");
-        let activityName = selectedActivity.value;
-        let activityColor = selectedActivity.options[selectedActivity.selectedIndex].dataset.color;
-
-        selectedCells.forEach(cell => {
-            cell.style.backgroundColor = activityColor;
-            cell.dataset.activity = activityName;
-        });
-
-        document.querySelectorAll("#time-table td").forEach(cell => cell.classList.remove("selected"));
-    }
-</script>
-
+    <script src="script.js"></script> <!-- JavaScript 연결 -->
 </body>
 </html>
