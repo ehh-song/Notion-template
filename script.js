@@ -95,7 +95,7 @@ function getCellsInRange(start, end) {
     return cells.slice(startIndex, endIndex + 1);
 }
 
-// 🎨 선택한 활동 적용 기능 (버튼 클릭 시 색상 변경)
+// 🎨 선택한 활동 적용 기능 (버튼 클릭 시 색상 변경 & Notion 저장)
 applyBtn.addEventListener("click", () => {
     if (selectedCells.length === 0) {
         console.log("선택된 셀이 없음");
@@ -103,11 +103,24 @@ applyBtn.addEventListener("click", () => {
     }
     let selectedActivity = activitySelect.value;
     let selectedColor = activitySelect.options[activitySelect.selectedIndex].getAttribute("data-color");
+    let selectedDate = new Date().toISOString().split("T")[0];
+
+    // 시작 시간과 종료 시간 계산
+    let times = selectedCells.map(cell => cell.dataset.time);
+    times.sort();
+    let startTime = times[0];
+    let endTime = times[times.length - 1];
+    let timeRange = `${startTime} - ${endTime}`;
 
     selectedCells.forEach(cell => {
         cell.style.backgroundColor = selectedColor;
         cell.dataset.activity = selectedActivity;
     });
+
+    console.log("✅ Notion API 호출 전", timeRange, selectedDate, selectedActivity);
+
+    // ✅ Notion 데이터베이스에 저장
+    addToNotionDatabase(selectedDate, timeRange, selectedActivity);
 
     selectedCells = []; // 적용 후 선택 해제
 });
@@ -149,3 +162,33 @@ saveActivityBtn.addEventListener("click", () => {
     newActivityNameInput.value = "";
     modal.style.display = "none";
 });
+
+// 🚀 Notion에 데이터 저장 기능
+// Notion에 데이터 저장하기
+async function addToNotionDatabase(date, time, activity) {
+    const notionApiKey = process.env.NOTION_API_KEY;  // .env에서 가져오기
+    const notionDatabaseId = process.env.NOTION_DATABASE_ID;  // .env에서 가져오기
+
+    const response = await fetch("http://localhost:5000/save-to-notion", {
+        method: "POST",
+        headers: {
+            "Authorization": `Bearer ${notionApiKey}`,
+            "Content-Type": "application/json",
+            "Notion-Version": "2022-06-28"
+        },
+        body: JSON.stringify({
+            parent: { database_id: notionDatabaseId },
+            properties: {
+                "날짜": { date: { start: date } },
+                "시간": { title: [{ text: { content: time } }] },
+                "항목": { select: { name: activity } }
+            }
+        })
+    });
+
+    if (response.ok) {
+        console.log("✅ Notion에 기록 성공!");
+    } else {
+        console.error("❌ Notion 기록 실패:", await response.json());
+    }
+}
