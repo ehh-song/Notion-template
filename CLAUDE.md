@@ -4,100 +4,103 @@ This file provides guidance to AI assistants working with this codebase.
 
 ## Project Overview
 
-A Korean-language, browser-based daily time-tracking tool inspired by Notion. Users visually log activities across a 24-hour grid by dragging to select 10-minute blocks and applying color-coded activity labels. No build step, no backend, no dependencies.
+A Windows desktop widget for daily time-tracking and reflection. Users drag to create activity blocks on a vertical timeline, log reflections (잘한 점 / 아쉬운 점 / 나아갈 점) per activity, and search past activities by tag.
 
 ## Repository Structure
 
 ```
-Notion-template/
-├── index.html    # App entry point and DOM structure
-├── script.js     # All application logic
-├── style.css     # Styling for the table and UI elements
-└── README.md     # Minimal project readme
+├── main.py        # Entry point — initialises DB, creates QApplication, system tray
+├── widget.py      # MainWidget — frameless always-on-top window (header + scroll area)
+├── timeline.py    # TimelineWidget — custom QWidget, all drag/paint logic
+├── dialogs.py     # AddActivityDialog, ActivityDetailDialog (reflection inputs)
+├── search.py      # SearchWindow — tag-based full-history search
+├── database.py    # SQLite CRUD via sqlite3 standard library
+├── models.py      # Activity and Reflection dataclasses
+├── timelog.db     # Auto-created SQLite database (not committed)
+└── README.md      # Korean-language setup and usage guide
 ```
 
 ## Technology Stack
 
-- **Vanilla HTML/CSS/JavaScript** — no frameworks, no bundlers, no package manager
-- **localStorage** — only persistence mechanism (saves custom activities across sessions)
-- **No external dependencies** — everything runs directly in the browser
+- **Python 3.10+** with **PyQt6** — only external dependency
+- **SQLite** via the standard library `sqlite3` module
+- No build system, no bundler, no other dependencies
+- Run directly: `python main.py`
 
 ## Application Architecture
 
-### index.html
-Defines the static structure:
-- `<select id="activity">` — dropdown of available activities with `data-color` attributes
-- `<button id="apply-btn">` — applies selected activity color to selected cells
-- `<button id="add-activity-btn">` — toggles the activity creation modal
-- `<div id="activity-modal">` — modal for adding custom activities (hidden by default)
-- `<table id="time-table">` — populated dynamically by `script.js`
+### Data layer (`models.py` → `database.py`)
 
-### script.js
-All logic is in a single flat file:
-
-| Function | Purpose |
+| Model | Fields |
 |---|---|
-| `loadActivities()` | Reads custom activities from localStorage on page load |
-| `addActivityToSelect(name, color)` | Adds an `<option>` to the activity dropdown |
-| `startSelection(event)` | `mousedown` handler — begins drag selection |
-| `selectCell(event)` | `mouseover` handler — extends selection range during drag |
-| `endSelection()` | `mouseup` handler — ends drag selection |
-| `clearSelection()` | Removes `.selected` class from all cells |
-| `getCellsInRange(start, end)` | Returns all non-hour cells between two cells (inclusive) |
+| `Activity` | `id`, `date`, `start_time`, `end_time`, `name`, `tags: list[str]`, `color` |
+| `Reflection` | `activity_id`, `good`, `bad`, `next_steps` (each a `list[str]` of 3 items) |
 
-**Event listeners (inline):**
-- `applyBtn` click — applies the selected activity's color and name to `selectedCells`
-- `addActivityBtn` click — toggles modal visibility
-- `saveActivityBtn` click — validates, deduplicates, persists to localStorage, and adds to dropdown
+`database.py` functions: `init_db`, `save_activity`, `get_activities_by_date`, `delete_activity`, `save_reflection`, `get_reflection`, `search_by_tag`.
 
-### style.css
-Minimal styles:
-- Table uses `border-collapse: collapse`, centered with `margin: auto`
-- Each `td` is `50px × 30px`
-- `.selected` class applies `lightgray` background during drag preview
+### Timeline widget (`timeline.py`)
+
+The most complex module. Key design points:
+
+- **Time representation**: times stored as `"HH:MM"` strings where `HH` can exceed 23 (e.g. `"25:30"` = 1:30 AM next day). `time_to_min` converts to raw minutes from midnight.
+- **Layout constants**: `START_HOUR = 6`, `END_HOUR = 26`, `HOUR_HEIGHT = 64` px, `LABEL_WIDTH = 44` px, `SNAP_MIN = 10` minutes.
+- **Drag state machine**: `drag_mode` ∈ `{'create', 'move', 'resize_top', 'resize_bottom', None}`. `drag_moved: bool` distinguishes a click (show detail dialog) from an actual drag. The threshold is 4 px.
+- **Mouse events**: `mousePressEvent` sets mode; `mouseMoveEvent` updates positions; `mouseReleaseEvent` commits changes to DB or opens dialogs.
+- **`paintEvent`**: draws hour grid, activity blocks (with tag labels for tall blocks), and a semi-transparent drag-preview rectangle during 'create' drags.
+
+### Widget window (`widget.py`)
+
+- `MainWidget` is a `FramelessWindowHint + WindowStaysOnTopHint + Tool` window.
+- Header is draggable to move the widget around the screen.
+- Contains a `QScrollArea` (640 px tall) holding the `TimelineWidget` (1280 px = 20 h × 64 px).
+- Default scroll position: 08:00 (2 hours from start).
+
+### Dialogs (`dialogs.py`)
+
+- `AddActivityDialog`: captures name + comma-separated tags. First tag drives the block color via `_tag_color()` (MD5 hash → palette index).
+- `ActivityDetailDialog`: shows activity header and three `_ReflectionSection` widgets (3 `QLineEdit` inputs each). Saves on "저장" button.
+
+### Search (`search.py`)
+
+- `SearchWindow` is a separate `Qt.WindowType.Window`.
+- Calls `db.search_by_tag(tag)` which does a SQL `LIKE '%"tag"%'` match against the JSON tags column.
+- Results rendered as `_ResultCard` widgets inside a `QScrollArea`.
 
 ## Key Conventions
 
-### Time Grid
-- Rows cover hours **6:00 to 29:00** (`i` from 6 to 29), wrapping via `% 24` — so it shows 6 AM through 5 AM (next day)
-- Columns represent 10-minute intervals (0, 10, 20, 30, 40, 50 minutes)
-- Each data cell has `dataset.time` (e.g. `"14:30"`) and optionally `dataset.activity`
-- Hour label cells have class `.hour-cell` and are excluded from selection logic
+### Time system
+- Timeline covers **06:00–26:00** (6 AM to 2 AM next day).
+- Times stored as `"HH:MM"` with hours potentially > 23 to avoid date rollover ambiguity.
+- All pixel ↔ time conversions go through `min_to_y` / `y_to_min` / `time_to_min` in `timeline.py`.
+- Always snap to `SNAP_MIN = 10` minute intervals.
 
-### Activity Colors
-- Built-in activities and their colors are hardcoded in `index.html` via `data-color` attributes
-- Custom activities are stored in localStorage as `[{ name: string, color: string }]`
-- Color is stored as a hex string (e.g. `"#FF5733"`)
+### Colors
+- Each activity's color is derived from its first tag using `tag_color()` (MD5 → index into `TAG_COLORS` list).
+- Tagless activities use `TAG_COLORS[0]` (#4A90D9).
 
-### Selection Mechanism
-- Uses three mouse event listeners per cell (mousedown, mouseover, mouseup)
-- `getCellsInRange` flattens all non-hour cells into an array and slices by index — selection is linear across the full grid, not confined to a single row
+### UI language
+- All UI text is in **Korean**. Keep any new labels, alerts, and placeholder text in Korean.
 
-### UI Language
-- All UI text is in **Korean**. Keep any new labels, alerts, or placeholder text in Korean to match the existing interface.
+### Dark theme
+- Background: `#13131F` (timeline), `#1A1A2A` / `#1E1E2E` (panels), `#232336` (header).
+- Accent: `#4A90D9` (blue), `#6478DC` (drag preview border).
+- Text: `#FFFFFF` (primary), `#CCCCDD` (secondary), `#666888` (muted).
 
 ## Development Workflow
 
-This project has no build process. To work on it:
+No build step required:
 
-1. Open `index.html` directly in a browser, or serve it with any static file server:
-   ```bash
-   python3 -m http.server 8000
-   # or
-   npx serve .
-   ```
-2. Edit HTML/CSS/JS files and reload the browser.
-3. There are no tests, no linters, and no CI configuration.
+```bash
+pip install PyQt6
+python main.py
+```
 
-## Git Conventions
-
-- Default branch on the remote is `main`; local development has also used `master`
-- Commit messages have been brief and informal (e.g. `"index.html"`, `"Add files via upload"`)
-- No enforced commit message format
+`timelog.db` is created automatically on first run next to `main.py`.
 
 ## What to Avoid
 
-- Do not introduce a build system, bundler, or package manager unless explicitly requested — the project's simplicity is intentional
-- Do not add frameworks (React, Vue, etc.) without explicit instruction
-- Do not rename Korean UI strings to English without explicit instruction
-- The `getCellsInRange` function selects cells linearly across the entire grid; be aware of this when modifying selection behavior
+- Do not introduce additional dependencies beyond PyQt6.
+- Do not change the time representation to `datetime` objects in the DB — keep times as `"HH:MM"` strings with 24+ hour support.
+- Do not break the `drag_moved` flag logic in `TimelineWidget` — it is the only thing distinguishing a click from a drag.
+- Do not rename Korean UI strings to English.
+- The `SNAP_MIN` constant is used throughout; adjust only via the constant, never hardcode `10`.
